@@ -1,0 +1,12 @@
+target/
+.mule/
+.project
+.classpath
+.settings/
+.idea/
+*.iml
+.vscode/
+*.log
+.env
+
+.tooling-project

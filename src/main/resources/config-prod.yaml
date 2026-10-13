@@ -1,0 +1,27 @@
+# Environment: prod  (-Dmule.env=prod)
+# Secrets are NOT stored here: ${ENTRA_CLIENT_SECRET} is resolved from an
+# environment variable / system property at runtime.
+
+http:
+  port: "8081"
+
+entra:
+  host: "login.microsoftonline.com"
+  tenantId: "00000000-0000-0000-0000-000000000000"   # TODO
+  clientId: "11111111-1111-1111-1111-111111111111"   # TODO
+  clientSecret: "${ENTRA_CLIENT_SECRET}"
+
+aws:
+  region: "ap-southeast-2"
+  roleArn: "arn:aws:iam::123456789012:role/mule-s3-oidc-role"   # TODO
+  sessionDurationSeconds: "3600"
+  signPayload: "true"
+
+cloudflare:
+  protocol: "HTTPS"
+  host: "s3-proxy.example.com"                        # TODO
+  port: "443"
+
+s3:
+  signingHost: "my-prod-bucket.s3.ap-southeast-2.amazonaws.com"   # TODO
+  pathPrefix: ""

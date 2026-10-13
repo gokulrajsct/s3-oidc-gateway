@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        Thin HTTP facade so the project is runnable and testable end to end:
+            PUT  /objects/<key>   -> uploads the request body to S3
+            GET  /objects/<key>   -> downloads the object
+        Replace this with your real API / call s3-put-object and s3-get-object from your own flows.
+    -->
+    <flow name="s3-objects-api-flow">
+        <http:listener config-ref="HTTP_Listener_config" path="/objects/*" allowedMethods="GET,PUT">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[{ 'Content-Type': 'application/json' }]</http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <!-- object key = everything after /objects/ -->
+        <set-variable variableName="objectKey"
+                      value="#[((attributes.maskedRequestPath default '') replace /^\/+/ with '')]"/>
+
+        <!-- ".." and "//" are rejected: proxies normalise them and the signature would no longer match -->
+        <choice>
+            <when expression="#[vars.objectKey == '' or vars.objectKey contains '..' or vars.objectKey contains '//']">
+                <raise-error type="APP:BAD_REQUEST" description="A valid object key is required"/>
+            </when>
+        </choice>
+
+        <choice>
+            <when expression="#[attributes.method == 'PUT']">
+                <flow-ref name="s3-put-object"/>
+            </when>
+            <otherwise>
+                <flow-ref name="s3-get-object"/>
+            </otherwise>
+        </choice>
+
+        <error-handler ref="global-error-handler"/>
+    </flow>
+
+    <!-- Maps technical failures to safe client responses; full detail goes to the log only. -->
+    <error-handler name="global-error-handler">
+        <on-error-continue type="APP:BAD_REQUEST">
+            <set-variable variableName="httpStatus" value="#[400]"/>
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad request", message: error.description }]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </on-error-continue>
+
+        <on-error-continue type="HTTP:NOT_FOUND">
+            <set-variable variableName="httpStatus" value="#[404]"/>
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not found", message: "Object does not exist" }]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- 401/403 from Entra, STS, Cloudflare or S3 are OUR problem (credentials / trust policy),
+             not the caller's, so they surface as 502 and are logged in detail. -->
+        <on-error-continue type="HTTP:UNAUTHORIZED, HTTP:FORBIDDEN, HTTP:BAD_REQUEST, HTTP:CONNECTIVITY, HTTP:TIMEOUT">
+            <logger level="ERROR" category="com.acme.s3oidc"
+                    message="#['Upstream call failed: ' ++ error.errorType.identifier ++ ' - ' ++ (error.description default '') ++ ' - ' ++ (error.errorMessage.payload as String default '')]"/>
+            <set-variable variableName="httpStatus" value="#[502]"/>
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad gateway", message: "Storage backend call failed" }]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </on-error-continue>
+
+        <on-error-continue>
+            <logger level="ERROR" category="com.acme.s3oidc"
+                    message="#['Unhandled error: ' ++ (error.errorType.identifier default '') ++ ' - ' ++ (error.description default '')]"/>
+            <set-variable variableName="httpStatus" value="#[500]"/>
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Internal error", message: "Unexpected error" }]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </on-error-continue>
+    </error-handler>
+</mule>

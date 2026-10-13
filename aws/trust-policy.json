@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/login.microsoftonline.com/<TENANT_ID>/v2.0"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "login.microsoftonline.com/<TENANT_ID>/v2.0:aud": "<CLIENT_ID>",
+          "login.microsoftonline.com/<TENANT_ID>/v2.0:sub": "<SERVICE_PRINCIPAL_OBJECT_ID>"
+        }
+      }
+    }
+  ]
+}

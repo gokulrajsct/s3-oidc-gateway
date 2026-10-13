@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:java="http://www.mulesoft.org/schema/mule/java"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        s3-sign-request
+        In : vars.s3Method, vars.objectKey, vars.payloadHash, vars.contentType (PUT only)
+        Out: vars.encodedPath      URI-encoded path used BOTH for signing and for the HTTP request
+             vars.signedHeaders    Authorization, x-amz-date, x-amz-content-sha256, x-amz-security-token
+    -->
+    <sub-flow name="s3-sign-request">
+        <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="encodePath(java.lang.String)"
+                            target="encodedPath">
+            <java:args><![CDATA[#[{ arg0: p('s3.pathPrefix') ++ "/" ++ vars.objectKey }]]]></java:args>
+        </java:invoke-static>
+
+        <flow-ref name="get-aws-credentials" target="awsCreds"/>
+
+        <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="sign(java.util.Map)"
+                            target="signedHeaders">
+            <java:args><![CDATA[#[{
+                arg0: {
+                    method: vars.s3Method,
+                    host: p('s3.signingHost'),
+                    uri: vars.encodedPath,
+                    query: "",
+                    region: p('aws.region'),
+                    payloadHash: vars.payloadHash,
+                    accessKeyId: vars.awsCreds.accessKeyId,
+                    secretAccessKey: vars.awsCreds.secretAccessKey,
+                    sessionToken: vars.awsCreds.sessionToken,
+                    headers: if (vars.s3Method == "PUT") { "content-type": vars.contentType } else {}
+                }
+            }]]]></java:args>
+        </java:invoke-static>
+    </sub-flow>
+
+    <!-- PUT object. Incoming payload is the object body. -->
+    <sub-flow name="s3-put-object">
+        <set-variable variableName="s3Method" value="PUT"/>
+        <set-variable variableName="contentType"
+                      value="#[attributes.headers.'content-type' default 'application/octet-stream']"/>
+        <!-- keep the (repeatable) stream: it is hashed here and sent again below -->
+        <set-variable variableName="rawBody" value="#[payload]"/>
+        <ee:transform>
+            <ee:variables>
+                <ee:set-variable variableName="payloadHash"><![CDATA[%dw 2.0
+import * from dw::Crypto
+import toHex from dw::core::Binaries
+output text/plain
+---
+if (p('aws.signPayload') == "true")
+    lower(toHex(hashWith(vars.rawBody as Binary, "SHA-256")))
+else
+    "UNSIGNED-PAYLOAD"]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <flow-ref name="s3-sign-request"/>
+
+        <!-- requestStreamingMode=NEVER: S3 needs a Content-Length, not chunked transfer encoding -->
+        <http:request method="PUT" config-ref="Cloudflare_HTTP_Request_config"
+                      path="#[vars.encodedPath]" requestStreamingMode="NEVER">
+            <http:body>#[vars.rawBody]</http:body>
+            <http:headers>#[vars.signedHeaders ++ { "Content-Type": vars.contentType }]</http:headers>
+        </http:request>
+
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    key: vars.objectKey,
+    etag: attributes.headers.etag,
+    status: "stored"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        <set-variable variableName="httpStatus" value="#[201]"/>
+    </sub-flow>
+
+    <!-- GET object. The object body is streamed back to the caller. -->
+    <sub-flow name="s3-get-object">
+        <set-variable variableName="s3Method" value="GET"/>
+        <!-- SHA-256 of the empty string: a GET has no body -->
+        <set-variable variableName="payloadHash"
+                      value="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"/>
+
+        <flow-ref name="s3-sign-request"/>
+
+        <http:request method="GET" config-ref="Cloudflare_HTTP_Request_config"
+                      path="#[vars.encodedPath]">
+            <http:headers>#[vars.signedHeaders]</http:headers>
+        </http:request>
+
+        <set-variable variableName="outHeaders"
+                      value="#[{ 'Content-Type': attributes.headers.'content-type' default 'application/octet-stream' }]"/>
+    </sub-flow>
+</mule>
