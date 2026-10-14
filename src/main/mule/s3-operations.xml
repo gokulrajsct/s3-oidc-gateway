@@ -37,7 +37,7 @@
                     accessKeyId: vars.awsCreds.accessKeyId,
                     secretAccessKey: vars.awsCreds.secretAccessKey,
                     sessionToken: vars.awsCreds.sessionToken,
-                    headers: if (vars.s3Method == "PUT") { "content-type": vars.contentType } else {}
+                    headers: {}
                 }
             }]]]></java:args>
         </java:invoke-static>
@@ -49,7 +49,7 @@
         <set-variable variableName="contentType"
                       value="#[attributes.headers.'content-type' default 'application/octet-stream']"/>
         <!-- keep the (repeatable) stream: it is hashed here and sent again below -->
-        <set-variable variableName="rawBody" value="#[payload]"/>
+        <set-variable variableName="rawBody" value="#[payload]" mimeType="application/octet-stream"/>
         <ee:transform>
             <ee:variables>
                 <ee:set-variable variableName="payloadHash"><![CDATA[%dw 2.0

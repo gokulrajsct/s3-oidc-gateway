@@ -31,7 +31,7 @@
 
         <!-- ".." and "//" are rejected: proxies normalise them and the signature would no longer match -->
         <choice>
-            <when expression="#[vars.objectKey == '' or vars.objectKey contains '..' or vars.objectKey contains '//']">
+            <when expression="#[isEmpty(vars.objectKey) or contains(vars.objectKey, '..') or contains(vars.objectKey, '//')]">
                 <raise-error type="APP:BAD_REQUEST" description="A valid object key is required"/>
             </when>
         </choice>
