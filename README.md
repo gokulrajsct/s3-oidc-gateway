@@ -43,6 +43,14 @@ curl -X PUT  --data-binary @invoice.pdf -H 'Content-Type: application/pdf' http:
 curl -o out.pdf                                                             http://localhost:8081/objects/invoices/invoice.pdf
 ```
 
+## Cloudflare Access credentials
+
+Every call to Cloudflare carries the Access service-token headers, configured under `cloudflare.auth`
+in `config-<env>.yaml` (header names default to `CF-Access-Client-Id` / `CF-Access-Client-Secret`;
+rename them if your Cloudflare layer expects different ones). Supply the values at runtime:
+`CLOUDFLARE_ACCESS_ID` and `CLOUDFLARE_ACCESS_SECRET` (environment variables / secure deployment
+properties). They are not part of the SigV4 signature.
+
 ## What the Cloudflare layer must do
 
 Mule connects to `cloudflare.host`, but the signature is computed for `s3.signingHost`

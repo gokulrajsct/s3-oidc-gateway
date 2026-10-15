@@ -21,6 +21,16 @@ cloudflare:
   protocol: "HTTPS"
   host: "s3-proxy.example.com"                        # TODO
   port: "443"
+  # Cloudflare Access service token. These are the HEADER NAMES sent to Cloudflare: change them
+  # if your Cloudflare layer expects different ones. A header with an empty name or value is skipped.
+  auth:
+    clientIdHeader: "CF-Access-Client-Id"
+    clientId: "${CLOUDFLARE_ACCESS_ID}"
+    clientSecretHeader: "CF-Access-Client-Secret"
+    clientSecret: "${CLOUDFLARE_ACCESS_SECRET}"
+    # Optional extra header carrying a host name, if your Cloudflare layer wants one ("" = not sent)
+    hostNameHeader: ""
+    hostName: ""
 
 s3:
   signingHost: "my-prod-bucket.s3.ap-southeast-2.amazonaws.com"   # TODO

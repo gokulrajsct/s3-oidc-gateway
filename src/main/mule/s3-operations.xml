@@ -41,6 +41,21 @@
                 }
             }]]]></java:args>
         </java:invoke-static>
+        <!-- Headers for the outbound call = SigV4 headers + Cloudflare Access credentials.
+             The Cloudflare headers are NOT part of the signature: Cloudflare consumes them. -->
+        <ee:transform>
+            <ee:variables>
+                <ee:set-variable variableName="outboundHeaders"><![CDATA[%dw 2.0
+output application/java
+var cf = {
+    (p('cloudflare.auth.clientIdHeader')): p('cloudflare.auth.clientId'),
+    (p('cloudflare.auth.clientSecretHeader')): p('cloudflare.auth.clientSecret'),
+    (p('cloudflare.auth.hostNameHeader')): p('cloudflare.auth.hostName')
+} filterObject ((value, key) -> !isEmpty(key as String) and !isEmpty(value))
+---
+vars.signedHeaders ++ cf]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
     </sub-flow>
 
     <!-- PUT object. Incoming payload is the object body. -->
@@ -70,7 +85,7 @@ else
         <http:request method="PUT" config-ref="Cloudflare_HTTP_Request_config"
                       path="#[vars.encodedPath]" requestStreamingMode="NEVER">
             <http:body>#[vars.rawBody]</http:body>
-            <http:headers>#[vars.signedHeaders ++ { "Content-Type": vars.contentType }]</http:headers>
+            <http:headers>#[vars.outboundHeaders ++ { "Content-Type": vars.contentType }]</http:headers>
         </http:request>
 
         <ee:transform>
@@ -99,7 +114,7 @@ output application/json
 
         <http:request method="GET" config-ref="Cloudflare_HTTP_Request_config"
                       path="#[vars.encodedPath]">
-            <http:headers>#[vars.signedHeaders]</http:headers>
+            <http:headers>#[vars.outboundHeaders]</http:headers>
         </http:request>
 
         <set-variable variableName="outHeaders"
