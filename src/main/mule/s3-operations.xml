@@ -24,23 +24,43 @@
 
         <flow-ref name="get-aws-credentials" target="awsCreds"/>
 
+        <ee:transform>
+            <ee:variables>
+                <ee:set-variable variableName="signArgs"><![CDATA[%dw 2.0
+output application/java
+---
+{
+    method: vars.s3Method,
+    host: p('s3.signingHost'),
+    uri: vars.encodedPath,
+    query: "",
+    region: p('aws.region'),
+    payloadHash: vars.payloadHash,
+    accessKeyId: vars.awsCreds.accessKeyId,
+    secretAccessKey: vars.awsCreds.secretAccessKey,
+    sessionToken: vars.awsCreds.sessionToken,
+    // content-type is sent but not signed: S3 does not require it
+    headers: {}
+}]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
         <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="sign(java.util.Map)"
                             target="signedHeaders">
-            <java:args><![CDATA[#[{
-                arg0: {
-                    method: vars.s3Method,
-                    host: p('s3.signingHost'),
-                    uri: vars.encodedPath,
-                    query: "",
-                    region: p('aws.region'),
-                    payloadHash: vars.payloadHash,
-                    accessKeyId: vars.awsCreds.accessKeyId,
-                    secretAccessKey: vars.awsCreds.secretAccessKey,
-                    sessionToken: vars.awsCreds.sessionToken,
-                    headers: {}
-                }
-            }]]]></java:args>
+            <java:args><![CDATA[#[{ arg0: vars.signArgs }]]]></java:args>
         </java:invoke-static>
+
+        <!-- aws.debugSigning=true: log exactly what was signed so it can be diffed against S3's error -->
+        <choice>
+            <when expression="#[p('aws.debugSigning') == 'true']">
+                <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="describe(java.util.Map)"
+                                    target="canonicalRequest">
+                    <java:args><![CDATA[#[{ arg0: vars.signArgs }]]]></java:args>
+                </java:invoke-static>
+                <logger level="WARN" category="com.acme.s3oidc.signing"
+                        message="#['SigV4 debug. Mule connects to ' ++ p('cloudflare.host') ++ ':' ++ p('cloudflare.port') ++ ' with Host signed as ' ++ p('s3.signingHost') ++ ', region ' ++ p('aws.region') ++ '. Canonical request (date line may differ by a second):' ++ (if (vars.canonicalRequest != null) '\n' ++ vars.canonicalRequest else '')]"/>
+            </when>
+        </choice>
         <!-- Headers for the outbound call = SigV4 headers + Cloudflare Access credentials.
              The Cloudflare headers are NOT part of the signature: Cloudflare consumes them. -->
         <ee:transform>

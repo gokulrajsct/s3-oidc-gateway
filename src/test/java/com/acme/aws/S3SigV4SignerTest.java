@@ -99,6 +99,19 @@ class S3SigV4SignerTest {
     }
 
     @Test
+    void describeShowsCanonicalRequestAndMasksTheToken() {
+        Map<String, Object> req = base("PUT", "/data/order-55.json", EMPTY_SHA256);
+        req.put("sessionToken", "SECRET-SESSION-TOKEN");
+
+        String described = S3SigV4Signer.describeAt(req, FIXED);
+
+        assertTrue(described.startsWith("PUT\n/data/order-55.json\n\nhost:examplebucket.s3.amazonaws.com\n"));
+        assertTrue(described.contains("x-amz-security-token:<masked>"));
+        assertFalse(described.contains("SECRET-SESSION-TOKEN"));
+        assertTrue(described.contains("--- credential scope: 20130524/us-east-1/s3/aws4_request"));
+    }
+
+    @Test
     void missingRequiredParameterIsRejected() {
         Map<String, Object> req = base("GET", "/test.txt", EMPTY_SHA256);
         req.remove("secretAccessKey");

@@ -20,6 +20,9 @@ aws:
   # "true"  -> SHA-256 of the body is signed (safest, buffers body in memory)
   # "false" -> UNSIGNED-PAYLOAD (HTTPS only; fine for large objects)
   signPayload: "true"
+  # "true" logs the SigV4 canonical request (token masked) at WARN, to compare with the
+  # <CanonicalRequest> S3 returns in a SignatureDoesNotMatch error. Keep "false" normally.
+  debugSigning: "false"
 
 # --- Cloudflare (what Mule actually connects to) ---------------------------------
 cloudflare:

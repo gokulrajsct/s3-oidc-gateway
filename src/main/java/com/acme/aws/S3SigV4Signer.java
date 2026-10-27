@@ -64,6 +64,37 @@ public final class S3SigV4Signer {
 
     /** Same as {@link #sign(Map)} with an injectable clock (used by the unit tests). */
     static Map<String, String> signAt(Map<String, Object> req, Clock clock) {
+        return compute(req, clock).headers;
+    }
+
+    /**
+     * Debug aid: the canonical request that {@link #sign(Map)} would sign, with the session token
+     * masked. Compare it line by line with the {@code <CanonicalRequest>} S3 returns in a
+     * SignatureDoesNotMatch error. Only the x-amz-date line can legitimately differ.
+     */
+    public static String describe(Map<String, Object> req) {
+        return describeAt(req, Clock.systemUTC());
+    }
+
+    static String describeAt(Map<String, Object> req, Clock clock) {
+        Signed s = compute(req, clock);
+        String masked = s.canonicalRequest.replaceAll("(?m)^x-amz-security-token:.*$", "x-amz-security-token:<masked>");
+        return masked + "\n--- credential scope: " + s.scope;
+    }
+
+    private static final class Signed {
+        final String canonicalRequest;
+        final String scope;
+        final Map<String, String> headers;
+
+        Signed(String canonicalRequest, String scope, Map<String, String> headers) {
+            this.canonicalRequest = canonicalRequest;
+            this.scope = scope;
+            this.headers = headers;
+        }
+    }
+
+    private static Signed compute(Map<String, Object> req, Clock clock) {
         String method = required(req, "method").toUpperCase(Locale.ROOT);
         String host = required(req, "host");
         String uri = required(req, "uri");
@@ -132,7 +163,7 @@ public final class S3SigV4Signer {
         if (!token.isEmpty()) {
             out.put("x-amz-security-token", token);
         }
-        return out;
+        return new Signed(canonicalRequest, scope, out);
     }
 
     /**

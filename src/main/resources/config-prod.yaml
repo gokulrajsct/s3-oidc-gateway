@@ -16,6 +16,9 @@ aws:
   roleArn: "arn:aws:iam::123456789012:role/mule-s3-oidc-role"   # TODO
   sessionDurationSeconds: "3600"
   signPayload: "true"
+  # "true" logs the SigV4 canonical request (token masked) at WARN, to compare with the
+  # <CanonicalRequest> S3 returns in a SignatureDoesNotMatch error. Keep "false" normally.
+  debugSigning: "false"
 
 cloudflare:
   protocol: "HTTPS"

@@ -78,6 +78,14 @@ The only thing that changes for Cloudflare compared with static keys is the extr
   - test an object key with a space, `+` or non-ASCII character. The signer URI-encodes the key once and the same encoded path is given to the HTTP requester; if the S3 response is `SignatureDoesNotMatch` for those keys only, the requester is encoding `%` again;
   - decode a real Entra token (https://jwt.ms) and compare `iss`, `aud` and `sub` with the IAM provider and trust policy.
 
+## Debugging SignatureDoesNotMatch
+
+S3 returns the canonical request it computed in the error body (`<CanonicalRequest>`); the app logs
+that body at ERROR (`Upstream call failed ... HTTP:FORBIDDEN`). Set `aws.debugSigning: "true"` to also
+log, at WARN, the canonical request Mule signed (token masked), then compare the two line by line:
+method, path, host, each header and the payload hash. Whatever differs is what Cloudflare (or the
+config) changed. Turn the switch off again afterwards.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
