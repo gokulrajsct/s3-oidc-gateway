@@ -24,23 +24,60 @@
 
         <flow-ref name="get-aws-credentials" target="awsCreds"/>
 
+        <ee:transform>
+            <ee:variables>
+                <ee:set-variable variableName="signArgs"><![CDATA[%dw 2.0
+output application/java
+---
+{
+    method: vars.s3Method,
+    host: p('s3.signingHost'),
+    uri: vars.encodedPath,
+    query: "",
+    region: p('aws.region'),
+    payloadHash: vars.payloadHash,
+    accessKeyId: vars.awsCreds.accessKeyId,
+    secretAccessKey: vars.awsCreds.secretAccessKey,
+    sessionToken: vars.awsCreds.sessionToken,
+    // content-type is sent but not signed: S3 does not require it
+    headers: {}
+}]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
         <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="sign(java.util.Map)"
                             target="signedHeaders">
-            <java:args><![CDATA[#[{
-                arg0: {
-                    method: vars.s3Method,
-                    host: p('s3.signingHost'),
-                    uri: vars.encodedPath,
-                    query: "",
-                    region: p('aws.region'),
-                    payloadHash: vars.payloadHash,
-                    accessKeyId: vars.awsCreds.accessKeyId,
-                    secretAccessKey: vars.awsCreds.secretAccessKey,
-                    sessionToken: vars.awsCreds.sessionToken,
-                    headers: if (vars.s3Method == "PUT") { "content-type": vars.contentType } else {}
-                }
-            }]]]></java:args>
+            <java:args><![CDATA[#[{ arg0: vars.signArgs }]]]></java:args>
         </java:invoke-static>
+
+        <!-- aws.debugSigning=true: log exactly what was signed so it can be diffed against S3's error -->
+        <choice>
+            <when expression="#[p('aws.debugSigning') == 'true']">
+                <java:invoke-static class="com.acme.aws.S3SigV4Signer" method="describe(java.util.Map)"
+                                    target="canonicalRequest">
+                    <java:args><![CDATA[#[{ arg0: vars.signArgs }]]]></java:args>
+                </java:invoke-static>
+                <logger level="WARN" category="com.acme.s3oidc.signing"
+                        message="#['SigV4 debug. Mule connects to ' ++ p('cloudflare.host') ++ ':' ++ p('cloudflare.port') ++ ' with Host signed as ' ++ p('s3.signingHost') ++ ', region ' ++ p('aws.region') ++ '. Canonical request (date line may differ by a second):' ++ (if (vars.canonicalRequest != null) '\n' ++ vars.canonicalRequest else '')]"/>
+            </when>
+        </choice>
+        <!-- Headers sent to Cloudflare = SigV4 headers (forwarded to S3 unchanged)
+             + Cloudflare headers (consumed by Cloudflare: cloudFlareHostName tells it which S3 host
+             to forward to, so S3 receives exactly the host that was signed). -->
+        <ee:transform>
+            <ee:variables>
+                <ee:set-variable variableName="outboundHeaders"><![CDATA[%dw 2.0
+output application/java
+var cf = {
+    // Cloudflare forwards to this host, so it is the same value that was signed as 'host'
+    (p('cloudflare.auth.hostNameHeader')): p('s3.signingHost'),
+    (p('cloudflare.auth.clientIdHeader')): p('cloudflare.auth.clientId'),
+    (p('cloudflare.auth.clientSecretHeader')): p('cloudflare.auth.clientSecret')
+} filterObject ((value, key) -> !isEmpty(key as String) and !isEmpty(value))
+---
+vars.signedHeaders ++ cf]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
     </sub-flow>
 
     <!-- PUT object. Incoming payload is the object body. -->
@@ -49,7 +86,7 @@
         <set-variable variableName="contentType"
                       value="#[attributes.headers.'content-type' default 'application/octet-stream']"/>
         <!-- keep the (repeatable) stream: it is hashed here and sent again below -->
-        <set-variable variableName="rawBody" value="#[payload]"/>
+        <set-variable variableName="rawBody" value="#[payload]" mimeType="application/octet-stream"/>
         <ee:transform>
             <ee:variables>
                 <ee:set-variable variableName="payloadHash"><![CDATA[%dw 2.0
@@ -70,7 +107,7 @@ else
         <http:request method="PUT" config-ref="Cloudflare_HTTP_Request_config"
                       path="#[vars.encodedPath]" requestStreamingMode="NEVER">
             <http:body>#[vars.rawBody]</http:body>
-            <http:headers>#[vars.signedHeaders ++ { "Content-Type": vars.contentType }]</http:headers>
+            <http:headers>#[vars.outboundHeaders ++ { "Content-Type": vars.contentType }]</http:headers>
         </http:request>
 
         <ee:transform>
@@ -99,7 +136,7 @@ output application/json
 
         <http:request method="GET" config-ref="Cloudflare_HTTP_Request_config"
                       path="#[vars.encodedPath]">
-            <http:headers>#[vars.signedHeaders]</http:headers>
+            <http:headers>#[vars.outboundHeaders]</http:headers>
         </http:request>
 
         <set-variable variableName="outHeaders"

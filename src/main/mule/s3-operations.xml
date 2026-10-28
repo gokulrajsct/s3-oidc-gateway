@@ -61,16 +61,18 @@ output application/java
                         message="#['SigV4 debug. Mule connects to ' ++ p('cloudflare.host') ++ ':' ++ p('cloudflare.port') ++ ' with Host signed as ' ++ p('s3.signingHost') ++ ', region ' ++ p('aws.region') ++ '. Canonical request (date line may differ by a second):' ++ (if (vars.canonicalRequest != null) '\n' ++ vars.canonicalRequest else '')]"/>
             </when>
         </choice>
-        <!-- Headers for the outbound call = SigV4 headers + Cloudflare Access credentials.
-             The Cloudflare headers are NOT part of the signature: Cloudflare consumes them. -->
+        <!-- Headers sent to Cloudflare = SigV4 headers (forwarded to S3 unchanged)
+             + Cloudflare headers (consumed by Cloudflare: cloudFlareHostName tells it which S3 host
+             to forward to, so S3 receives exactly the host that was signed). -->
         <ee:transform>
             <ee:variables>
                 <ee:set-variable variableName="outboundHeaders"><![CDATA[%dw 2.0
 output application/java
 var cf = {
+    // Cloudflare forwards to this host, so it is the same value that was signed as 'host'
+    (p('cloudflare.auth.hostNameHeader')): p('s3.signingHost'),
     (p('cloudflare.auth.clientIdHeader')): p('cloudflare.auth.clientId'),
-    (p('cloudflare.auth.clientSecretHeader')): p('cloudflare.auth.clientSecret'),
-    (p('cloudflare.auth.hostNameHeader')): p('cloudflare.auth.hostName')
+    (p('cloudflare.auth.clientSecretHeader')): p('cloudflare.auth.clientSecret')
 } filterObject ((value, key) -> !isEmpty(key as String) and !isEmpty(value))
 ---
 vars.signedHeaders ++ cf]]></ee:set-variable>

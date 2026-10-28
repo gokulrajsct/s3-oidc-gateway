@@ -29,16 +29,15 @@ cloudflare:
   protocol: "HTTPS"
   host: "s3-proxy.dev.example.com"                    # TODO
   port: "443"
-  # Cloudflare Access service token. These are the HEADER NAMES sent to Cloudflare: change them
-  # if your Cloudflare layer expects different ones. A header with an empty name or value is skipped.
+  # Headers Cloudflare needs to authenticate the call and to know where to forward it.
+  # They are NOT part of the SigV4 signature (Cloudflare consumes them). Names are configurable;
+  # a header with an empty name is not sent.
   auth:
-    clientIdHeader: "CF-Access-Client-Id"
+    hostNameHeader: "cloudFlareHostName"     # value is always s3.signingHost (the host that was signed)
+    clientIdHeader: "cloudFlareAccessId"
     clientId: "${CLOUDFLARE_ACCESS_ID}"
-    clientSecretHeader: "CF-Access-Client-Secret"
+    clientSecretHeader: "cloudFlareAccessSecret"
     clientSecret: "${CLOUDFLARE_ACCESS_SECRET}"
-    # Optional extra header carrying a host name, if your Cloudflare layer wants one ("" = not sent)
-    hostNameHeader: ""
-    hostName: ""
 
 # --- S3 (what gets signed; must equal the Host header S3 finally receives) --------
 s3:

@@ -43,13 +43,17 @@ curl -X PUT  --data-binary @invoice.pdf -H 'Content-Type: application/pdf' http:
 curl -o out.pdf                                                             http://localhost:8081/objects/invoices/invoice.pdf
 ```
 
-## Cloudflare Access credentials
+## Cloudflare headers
 
-Every call to Cloudflare carries the Access service-token headers, configured under `cloudflare.auth`
-in `config-<env>.yaml` (header names default to `CF-Access-Client-Id` / `CF-Access-Client-Secret`;
-rename them if your Cloudflare layer expects different ones). Supply the values at runtime:
-`CLOUDFLARE_ACCESS_ID` and `CLOUDFLARE_ACCESS_SECRET` (environment variables / secure deployment
-properties). They are not part of the SigV4 signature.
+Every call to Cloudflare carries three headers, configured under `cloudflare.auth` in `config-<env>.yaml`:
+
+| Header (default name) | Value |
+|---|---|
+| `cloudFlareHostName` | `s3.signingHost`, the same host that is signed, so Cloudflare forwards to exactly that S3 host |
+| `cloudFlareAccessId` | `CLOUDFLARE_ACCESS_ID` (environment variable / secure property) |
+| `cloudFlareAccessSecret` | `CLOUDFLARE_ACCESS_SECRET` (environment variable / secure property) |
+
+They are not part of the SigV4 signature. Cloudflare should remove them before forwarding.
 
 ## What the Cloudflare layer must do
 

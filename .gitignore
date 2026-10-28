@@ -1,5 +1,5 @@
 target/
-bin/
+*bin/*
 .mule/
 .project
 .classpath
@@ -9,5 +9,6 @@ bin/
 .vscode/
 *.log
 .env
-
+.bin/
 .tooling-project
+
